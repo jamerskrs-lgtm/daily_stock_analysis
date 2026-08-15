@@ -563,6 +563,10 @@ jobs:
         env:
           FINSANCE_BRANCH: ${{ vars.FINSANCE_BRANCH || 'main' }}
         run: |
+          if [ ! -f reports/finsance/daily_latest.json ]; then
+            echo "No public daily artifact; skip Finsance publication (non-trading day or no analysis results)."
+            exit 0
+          fi
           python .github/scripts/publish_finsance_daily.py --source reports/finsance --destination .finsance/content/quanttrade --render-trigger .finsance/.render-quanttrade-trigger
           git -C .finsance config user.name "github-actions[bot]"
           git -C .finsance config user.email "41898282+github-actions[bot]@users.noreply.github.com"
