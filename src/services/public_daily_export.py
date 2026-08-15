@@ -165,13 +165,11 @@ def build_public_daily_payload(
         date_text = date.today().isoformat()
 
     models = [stock["model_used"] for stock in stocks if stock["model_used"]]
-    providers = sorted(
-        {
-            model.split("/", 1)[0]
-            for model in models
-            if "/" in model
-        }
-    )
+    providers = list(dict.fromkeys(
+        model.split("/", 1)[0]
+        for model in models
+        if "/" in model
+    ))
     any_success = any(stock["status"] == "ok" for stock in stocks)
     ai_status = "ok" if any_success and models else "fallback" if any_success else "unavailable"
 
@@ -197,8 +195,8 @@ def build_public_daily_payload(
         "ai": {
             "status": ai_status,
             "provider": ",".join(providers) or None,
-            "requested_order": ["gemini", "openai"],
-            "fallback": "openai",
+            "requested_order": providers,
+            "fallback": providers[1] if len(providers) > 1 else None,
         },
         "data_mode": {
             "commercial": commercial,

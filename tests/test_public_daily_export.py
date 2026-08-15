@@ -70,6 +70,8 @@ class PublicDailyExportTestCase(unittest.TestCase):
             self.assertEqual(payload["stocks"][0]["ticker"], "600519")
             self.assertFalse(payload["stocks"][0]["data_quality"]["stale"])
             self.assertEqual(payload["stocks"][0]["data_quality"]["bar_asof"], "2026-08-14")
+            self.assertEqual(payload["ai"]["requested_order"], ["gemini"])
+            self.assertIsNone(payload["ai"]["fallback"])
             self.assertNotIn("battle_plan", dumped)
             self.assertNotIn("current_price", dumped)
             self.assertNotIn("123.45", dumped)
