@@ -1318,10 +1318,22 @@ def _capital_flow_bias_with_status(
 def _capital_flow_status_for_stability(reason: str, language: str) -> str:
     normalized = str(reason or "").strip().lower()
     if "not_supported" in normalized or "unsupported" in normalized or "not available" in normalized:
-        return "市场资金流服务暂不支持" if language == "zh" else "Capital flow source unsupported"
+        if language == "zh":
+            return "市场资金流服务暂不支持"
+        if language == "th":
+            return "แหล่งข้อมูลกระแสเงินทุนยังไม่รองรับ"
+        return "Capital flow source unsupported"
     if "empty_stock_flow" in normalized or "missing" in normalized:
-        return "资金流数据缺失" if language == "zh" else "capital flow data unavailable"
-    return "资金流数据不可用" if language == "zh" else "capital flow unavailable"
+        if language == "zh":
+            return "资金流数据缺失"
+        if language == "th":
+            return "ไม่มีข้อมูลกระแสเงินทุน"
+        return "capital flow data unavailable"
+    if language == "zh":
+        return "资金流数据不可用"
+    if language == "th":
+        return "กระแสเงินทุนยังไม่พร้อมใช้งาน"
+    return "capital flow unavailable"
 
 
 def _set_decision_stability_unavailable(
@@ -1337,7 +1349,13 @@ def _set_decision_stability_unavailable(
     result.dashboard = dashboard
     dashboard["decision_stability"] = {
         "applied": False,
-        "reason": "资金流不可用，未使用资金流校准" if language == "zh" else "Capital flow unavailable; stability calibration not applied",
+        "reason": (
+            "资金流不可用，未使用资金流校准"
+            if language == "zh"
+            else "กระแสเงินทุนไม่พร้อม จึงไม่ได้ใช้การปรับเทียบจากกระแสเงินทุน"
+            if language == "th"
+            else "Capital flow unavailable; stability calibration not applied"
+        ),
         "capital_flow_status": _capital_flow_status_for_stability(flow_status, language),
         "current_price": current_price,
         "support": support,
@@ -1413,7 +1431,13 @@ def _apply_hold_watch_dashboard(
     if not isinstance(core, dict):
         core = {}
         dashboard["core_conclusion"] = core
-    core["signal_type"] = "🟡持有观望" if language == "zh" else "🟡 Hold / Watch"
+    core["signal_type"] = (
+        "🟡持有观望"
+        if language == "zh"
+        else "🟡 ถือและเฝ้าดู"
+        if language == "th"
+        else "🟡 Hold / Watch"
+    )
     core["one_sentence"] = f"{advice}：{reason}" if language == "zh" else f"{advice}: {reason}"
 
     position_advice = core.get("position_advice")
@@ -1462,6 +1486,12 @@ def _downgrade_buy_without_capital_flow(
         no_position = "空仓先不追买，等待资金流恢复、支撑确认或有效突破后再行动。"
         has_position = "持仓以关键支撑为风控线，资金流恢复前控制仓位。"
         confidence = "低"
+    elif language == "th":
+        advice = "ถือและเฝ้าดู"
+        reason = f"{status_text} การซื้อยังขาดการยืนยันจากกระแสเงินทุน จึงควรเฝ้าดูต่อ"
+        no_position = "อย่าไล่ซื้อ รอให้กระแสเงินทุนกลับมา ยืนยันแนวรับ หรือเกิดการทะลุที่ชัดเจนก่อน"
+        has_position = "ใช้แนวรับสำคัญเป็นเส้นควบคุมความเสี่ยง และจำกัดขนาดสถานะจนกว่ากระแสเงินทุนจะกลับมา"
+        confidence = "ต่ำ"
     else:
         advice = "Hold and watch"
         reason = f"{status_text}; the buy call lacks capital-flow confirmation, so treat it as watch-only."
@@ -1542,8 +1572,18 @@ def _set_structural_hold_wording(
             "shakeout": "흔들기 관찰",
             "hold": "보유 관찰",
         },
+        "th": {
+            "range": "เฝ้าดูในกรอบ",
+            "shakeout": "เฝ้าดูแรงเขย่า",
+            "hold": "ถือและเฝ้าดู",
+        },
     }
-    advice_default = {"zh": "持有观察", "en": "Hold and watch", "ko": "보유 관찰"}.get(language, "Hold and watch")
+    advice_default = {
+        "zh": "持有观察",
+        "en": "Hold and watch",
+        "ko": "보유 관찰",
+        "th": "ถือและเฝ้าดู",
+    }.get(language, "Hold and watch")
     advice = advice_map.get(language, advice_map["en"]).get(advice_key, advice_default)
     reason_templates = {
         "zh": {
@@ -1570,6 +1610,14 @@ def _set_structural_hold_wording(
             "hold_shakeout": "가격이 지지선 부근까지 눌렸지만 유출이 확인되지 않아 흔들기 관찰로 처리하는 것이 적절합니다.",
             "hold_mid_range": "가격이 지지선과 저항선 사이이고 자금 흐름이 불명확해 박스권 관망이 더 실행 가능합니다.",
         },
+        "th": {
+            "buy_near_resistance": "ราคาอยู่ใกล้แนวต้านแต่ยังไม่ยืนยันเงินทุนไหลเข้า จึงไม่ควรไล่ซื้อจากการเด้งระยะสั้น",
+            "buy_with_outflow": "เงินทุนไหลออกขัดแย้งกับสัญญาณซื้อ ควรรอการยืนยันแนวรับหรือเงินทุนไหลกลับ",
+            "sell_near_support": "ราคาอยู่ใกล้แนวรับและยังไม่เห็นเงินทุนไหลออกต่อเนื่อง จึงไม่ควรขายเพราะการลดลงเพียงวันเดียว",
+            "sell_with_inflow": "เงินทุนไหลเข้าขัดแย้งกับสัญญาณขาย ให้ถือและเฝ้าดูการหลุดแนวรับ",
+            "hold_shakeout": "ราคาย่อลงใกล้แนวรับแต่ยังไม่ยืนยันเงินทุนไหลออก จึงควรเฝ้าดูแรงเขย่า",
+            "hold_mid_range": "ราคาอยู่ระหว่างแนวรับกับแนวต้านและกระแสเงินทุนยังไม่ชัดเจน จึงควรเฝ้าดูในกรอบ",
+        },
     }
     reason = reason_templates.get(language, reason_templates["en"]).get(reason_key, "")
     if calibrate_score:
@@ -1583,6 +1631,8 @@ def _set_structural_hold_wording(
             result.trend_prediction = "Sideways"
         elif language == "ko":
             result.trend_prediction = "횡보"
+        elif language == "th":
+            result.trend_prediction = "แกว่งตัว"
 
     if language == "zh":
         no_position = "空仓先不追涨杀跌，等待支撑确认、放量突破或资金回流后再行动。"
@@ -1590,6 +1640,9 @@ def _set_structural_hold_wording(
     elif language == "ko":
         no_position = "현금 보유 시 추격·투매를 삼가고 지지 확인·대량 돌파·자금 재유입 후 행동하세요."
         has_position = "보유 시 핵심 지지선을 리스크 관리선으로 삼고, 이탈 전까지 관찰과 분할 관리 위주로 대응하세요."
+    elif language == "th":
+        no_position = "หากยังไม่มีสถานะ อย่าไล่ราคาหรือตื่นตระหนก รอการยืนยันแนวรับ การทะลุพร้อมปริมาณ หรือเงินทุนไหลกลับก่อน"
+        has_position = "หากมีสถานะ ใช้แนวรับสำคัญเป็นเส้นควบคุมความเสี่ยง และบริหารขนาดสถานะจนกว่าจะหลุดแนวรับ"
     else:
         no_position = "Do not chase or panic; wait for support confirmation, breakout, or renewed inflow."
         has_position = "Use key support as the risk line and manage position size unless support fails."
@@ -4303,6 +4356,10 @@ class GeminiAnalyzer:
     def _build_integrity_complement_prompt(self, missing_fields: List[str], report_language: str = "zh") -> str:
         """Build complement instruction for missing mandatory fields."""
         report_language = normalize_report_language(report_language)
+        if report_language == "th":
+            lines = ["### ข้อกำหนดเพิ่มเติม: เติมฟิลด์ที่ขาดให้ครบและส่ง JSON ฉบับเต็มอีกครั้ง โดยใช้ข้อความภาษาไทย:"]
+            lines.extend(f"- {field}: เติมข้อมูลที่ตรวจสอบได้ ห้ามเดาหรือสร้างตัวเลข" for field in missing_fields)
+            return "\n".join(lines)
         if report_language in ("en", "ko"):
             lines = ["### Completion requirements: fill the missing mandatory fields below and output the full JSON again:"]
             for f in missing_fields:
@@ -4374,7 +4431,9 @@ class GeminiAnalyzer:
         """Build retry prompt using the previous response as the complement baseline."""
         complement = self._build_integrity_complement_prompt(missing_fields, report_language=report_language)
         previous_output = previous_response.strip()
-        if normalize_report_language(report_language) in ("en", "ko"):
+        if normalize_report_language(report_language) == "th":
+            prefix = "### ผลลัพธ์ก่อนหน้าด้านล่าง เติมฟิลด์ที่ขาดโดยอ้างอิงข้อมูลเดิม แล้วส่ง JSON ฉบับเต็มอีกครั้ง ห้ามตัดฟิลด์เดิม และใช้ภาษาไทยในข้อความที่ผู้ใช้เห็น:"
+        elif normalize_report_language(report_language) in ("en", "ko"):
             prefix = "### The previous output is below. Complete the missing fields based on that output and return the full JSON again. Do not omit existing fields:"
         else:
             prefix = "### 上一次输出如下，请在该输出基础上补齐缺失字段，并重新输出完整 JSON。不要省略已有字段："

@@ -106,6 +106,10 @@ from bot.models import BotMessage
 logger = logging.getLogger(__name__)
 
 
+def _contains_thai(value: Any) -> bool:
+    return any("\u0e00" <= char <= "\u0e7f" for char in str(value or ""))
+
+
 def _share_image_payload(result: Any) -> Optional[Dict[str, Any]]:
     """Return structured poster data when the result exposes the real contract."""
 
@@ -1988,7 +1992,10 @@ class StockAnalysisPipeline:
                     result.trend_prediction = trend_label
                     self._mark_trend_fallback_source(result)
             else:
-                result.trend_prediction = str(raw_trend)
+                result.trend_prediction = localize_trend_prediction(
+                    str(raw_trend),
+                    report_language,
+                )
 
             raw_advice = self._agent_dashboard_value(
                 dash,
@@ -2021,7 +2028,11 @@ class StockAnalysisPipeline:
                 allow_dict=True,
                 expect_text=True,
             ):
-                result.operation_advice = str(raw_advice) if raw_advice else (localize_operation_advice("观望", report_language))
+                result.operation_advice = (
+                    localize_operation_advice(str(raw_advice), report_language)
+                    if raw_advice
+                    else localize_operation_advice("观望", report_language)
+                )
             else:
                 signal_label = self._trend_signal_fallback(trend_result, report_language)
                 if signal_label:
@@ -2075,6 +2086,8 @@ class StockAnalysisPipeline:
             )
             if not self._is_agent_field_missing(raw_summary, scalar=True, expect_text=True):
                 result.analysis_summary = str(raw_summary)
+                if report_language == "th" and not _contains_thai(result.analysis_summary):
+                    result.analysis_summary = self._summary_fallback_from_result(result, report_language)
             else:
                 result.analysis_summary = self._summary_fallback_from_result(result, report_language)
             top_level_phase_decision = dash.get("phase_decision") if isinstance(dash, dict) else None
@@ -2087,6 +2100,13 @@ class StockAnalysisPipeline:
             # methods (get_sniper_points, get_core_conclusion, etc.) expect that inner
             # structure, so we unwrap it here.
             result.dashboard = nested_dashboard or dash
+            if report_language == "th" and isinstance(result.dashboard, dict):
+                core = result.dashboard.get("core_conclusion")
+                if isinstance(core, dict) and not _contains_thai(core.get("one_sentence")):
+                    core["one_sentence"] = result.analysis_summary or self._summary_fallback_from_result(
+                        result,
+                        report_language,
+                    )
             self._backfill_agent_dashboard_fields(result, trend_result, report_language)
         else:
             self._apply_trend_fallback(result, trend_result, report_language)
@@ -2233,8 +2253,6 @@ class StockAnalysisPipeline:
             return ""
         trend_status = getattr(trend_result, "trend_status", None)
         value = getattr(trend_status, "value", None) or str(trend_status or "").strip()
-        if report_language != "en":
-            return value
         return localize_trend_prediction(value, report_language)
 
     @staticmethod
@@ -2281,6 +2299,8 @@ class StockAnalysisPipeline:
                 return f"Trend view: {trend}; action advice: {advice}."
             if report_language == "ko":
                 return f"추세 결론: {trend}; 대응 전략: {advice}."
+            if report_language == "th":
+                return f"มุมมองแนวโน้ม: {trend}; คำแนะนำ: {advice}"
             return f"趋势结论：{trend}；操作建议：{advice}。"
         return ""
 
@@ -2320,6 +2340,7 @@ class StockAnalysisPipeline:
             ) or (
                 "Analysis pending" if report_language == "en"
                 else "분석 보완 예정" if report_language == "ko"
+                else "รอข้อมูลการวิเคราะห์เพิ่มเติม" if report_language == "th"
                 else "分析待补充"
             )
 
