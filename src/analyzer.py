@@ -4635,8 +4635,14 @@ class GeminiAnalyzer:
                 name=name,
                 # 核心指标
                 sentiment_score=int(data.get('sentiment_score', 50)),
-                trend_prediction=data.get('trend_prediction', localize_trend_prediction('震荡', report_language)),
-                operation_advice=data.get('operation_advice', localize_operation_advice('持有', report_language)),
+                trend_prediction=localize_trend_prediction(
+                    data.get('trend_prediction', localize_trend_prediction('震荡', report_language)),
+                    report_language,
+                ),
+                operation_advice=localize_operation_advice(
+                    data.get('operation_advice', localize_operation_advice('持有', report_language)),
+                    report_language,
+                ),
                 decision_type=decision_type,
                 confidence_level=localize_confidence_level(
                     data.get('confidence_level', localize_confidence_level('中', report_language)),
@@ -4664,7 +4670,12 @@ class GeminiAnalyzer:
                 hot_topics=data.get('hot_topics', ''),
                 # 综合
                 analysis_summary=data.get('analysis_summary', _localized_text(
-                    report_language, en='Analysis completed', zh='分析完成', ko='분석 완료')),
+                    report_language,
+                    en='Analysis completed',
+                    zh='分析完成',
+                    ko='분석 완료',
+                    th='วิเคราะห์เสร็จแล้ว',
+                )),
                 key_points=data.get('key_points', ''),
                 risk_warning=data.get('risk_warning', ''),
                 buy_reason=data.get('buy_reason', ''),
