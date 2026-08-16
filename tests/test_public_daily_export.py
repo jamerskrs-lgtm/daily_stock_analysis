@@ -1,6 +1,7 @@
 """Public Finsance export contract tests."""
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -83,6 +84,22 @@ class PublicDailyExportTestCase(unittest.TestCase):
         self.assertEqual(payload["stocks"], [])
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertIsNone(write_daily_export([], output_dir=temp_dir))
+
+    def test_thai_public_text_does_not_leak_untranslated_cjk(self):
+        result = self._result()
+        result.report_language = "th"
+        result.trend_prediction = "看多"
+        result.confidence_level = "低"
+        result.analysis_summary = "รอดู"
+        result.risk_warning = "资金流数据缺失"
+        payload = build_public_daily_payload([result])
+        stock = payload["stocks"][0]
+
+        self.assertEqual(stock["trend"], "ขาขึ้น")
+        self.assertEqual(stock["confidence"], "ต่ำ")
+        self.assertNotRegex(stock["summary_th"], r"[\u3400-\u9fff]")
+        self.assertTrue(all(not re.search(r"[\u3400-\u9fff]", item) for item in stock["risks"]))
+        self.assertTrue(all(not re.search(r"[\u3400-\u9fff]", item) for item in stock["unknowns"]))
 
 
 if __name__ == "__main__":

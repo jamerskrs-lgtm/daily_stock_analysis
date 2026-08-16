@@ -19,6 +19,30 @@ from typing import Any, Iterable, Mapping, Optional
 SCHEMA_VERSION = "finsance-quanttrade-daily-v1"
 DEFAULT_OUTPUT_DIR = Path("reports") / "finsance"
 _SECRET_RE = re.compile(r"(?i)(?:bearer\s+|sk-|AIza)[A-Za-z0-9._-]{8,}")
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_THAI_RE = re.compile(r"[\u0e00-\u0e7f]")
+
+_KNOWN_THAI_TEXT = {
+    "看多": "ขาขึ้น",
+    "强烈看多": "ขาขึ้นแรง",
+    "看空": "ขาลง",
+    "强烈看空": "ขาลงแรง",
+    "震荡": "แกว่งตัว",
+    "低": "ต่ำ",
+    "中": "ปานกลาง",
+    "高": "สูง",
+    "技术面数据部分可用": "ข้อมูลทางเทคนิคมีเพียงบางส่วน",
+    "technical: partial": "ข้อมูลเทคนิค: บางส่วน",
+    "筹码分布数据缺失": "ข้อมูลโครงสร้างผู้ถือหุ้นยังไม่พร้อม",
+    "筹码分布数据缺失，无法进行筹码结构分析": "ข้อมูลโครงสร้างผู้ถือหุ้นยังไม่พร้อม จึงยังวิเคราะห์โครงสร้างไม่ได้",
+    "新闻舆情数据缺失": "ข้อมูลข่าวและ sentiment ยังไม่พร้อม",
+    "近三日无相关新闻数据": "ไม่มีข่าวที่เกี่ยวข้องในช่วง 3 วันที่ผ่านมา",
+    "非交易日，无实时盘中数据": "วันนี้ไม่ใช่วันซื้อขาย จึงไม่มีข้อมูลระหว่างวันที่แบบเรียลไทม์",
+    "当前为非交易日，无法获取实时盘中数据": "วันนี้ไม่ใช่วันซื้อขาย จึงไม่สามารถรับข้อมูลระหว่างวันที่แบบเรียลไทม์ได้",
+    "市场系统性风险，非交易日数据滞后风险，筹码分布数据缺失导致无法全面评估筹码健康状况。": "ความเสี่ยงระบบตลาด ข้อมูลวันหยุดอาจล่าช้า และข้อมูลโครงสร้างผู้ถือหุ้นยังไม่พร้อม จึงประเมินภาพรวมได้ไม่ครบ",
+    "资金流数据缺失": "ไม่มีข้อมูลกระแสเงินทุน",
+    "资金流数据不可用": "กระแสเงินทุนยังไม่พร้อมใช้งาน",
+}
 
 
 def _value(item: Any, key: str, default: Any = None) -> Any:
@@ -51,6 +75,26 @@ def _items(value: Any, limit: int = 5) -> list[str]:
         if len(result) >= limit:
             break
     return result
+
+
+def _thai_text(value: Any, fallback: Optional[str] = None) -> Optional[str]:
+    text = _safe_text(value, 800)
+    if not text:
+        return fallback
+    for source, target in _KNOWN_THAI_TEXT.items():
+        text = text.replace(source, target)
+    if _CJK_RE.search(text):
+        return fallback
+    return text if _THAI_RE.search(text) else fallback
+
+
+def _thai_items(value: Any, *, fallback: Optional[str] = None) -> list[str]:
+    translated: list[str] = []
+    for item in _items(value):
+        text = _thai_text(item)
+        if text and text not in translated:
+            translated.append(text)
+    return translated or ([fallback] if fallback else [])
 
 
 def _dashboard(result: Any) -> dict[str, Any]:
@@ -108,11 +152,20 @@ def _stock_payload(result: Any) -> dict[str, Any]:
 
     ticker = _safe_text(_value(result, "code"), 64) or "unknown"
     success = bool(_value(result, "success", True))
-    risks = _items(intelligence.get("risk_alerts"))
-    for risk in _items(_value(result, "risk_warning")):
+    thai_output = str(_value(result, "report_language") or "").strip().lower() == "th"
+    risks = _thai_items(intelligence.get("risk_alerts")) if thai_output else _items(intelligence.get("risk_alerts"))
+    warning_items = _thai_items(_value(result, "risk_warning")) if thai_output else _items(_value(result, "risk_warning"))
+    for risk in warning_items:
         if risk not in risks:
             risks.append(risk)
-    unknowns = _items(phase.get("data_limitations"))
+    unknowns = (
+        _thai_items(
+            phase.get("data_limitations"),
+            fallback="ข้อจำกัดของข้อมูล: ยังมีข้อมูลบางส่วนที่ยืนยันไม่ได้",
+        )
+        if thai_output
+        else _items(phase.get("data_limitations"))
+    )
     error_message = _safe_text(_value(result, "error_message"), 500)
     if not success and error_message and error_message not in unknowns:
         unknowns.append(error_message)
@@ -122,6 +175,8 @@ def _stock_payload(result: Any) -> dict[str, Any]:
         or _safe_text(_value(result, "analysis_summary"), 800)
         or "ยังไม่มีสรุปจาก AI"
     )
+    if thai_output:
+        summary = _thai_text(summary, "ยังไม่มีสรุปภาษาไทยจาก AI") or "ยังไม่มีสรุปภาษาไทยจาก AI"
     score = _value(result, "sentiment_score")
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         score = None
@@ -136,10 +191,22 @@ def _stock_payload(result: Any) -> dict[str, Any]:
         ),
         "action_label": _safe_text(_value(result, "action_label"), 80),
         "score": score,
-        "trend": _safe_text(_value(result, "trend_prediction"), 120),
-        "confidence": _safe_text(_value(result, "confidence_level"), 40),
+        "trend": (
+            _thai_text(_value(result, "trend_prediction"), "ยังไม่ทราบ")
+            if thai_output
+            else _safe_text(_value(result, "trend_prediction"), 120)
+        ),
+        "confidence": (
+            _thai_text(_value(result, "confidence_level"), "ยังไม่ทราบ")
+            if thai_output
+            else _safe_text(_value(result, "confidence_level"), 40)
+        ),
         "summary_th": summary,
-        "catalysts": _items(intelligence.get("positive_catalysts")),
+        "catalysts": (
+            _thai_items(intelligence.get("positive_catalysts"))
+            if thai_output
+            else _items(intelligence.get("positive_catalysts"))
+        ),
         "risks": risks[:5],
         "unknowns": unknowns[:5],
         "data_quality": _quality(result, dashboard),
