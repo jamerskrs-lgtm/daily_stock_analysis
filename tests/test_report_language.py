@@ -127,7 +127,6 @@ class KoreanReportLanguageTestCase(unittest.TestCase):
     def test_existing_languages_unchanged(self) -> None:
         self.assertEqual(get_sentiment_label(80, "en"), "Very Bullish")
         self.assertEqual(get_sentiment_label(40, "zh"), "中性")
-
     def test_korean_advice_canonicalizes_to_decision_type(self) -> None:
         self.assertEqual(infer_decision_type_from_advice("매수"), "buy")
         self.assertEqual(infer_decision_type_from_advice("매도"), "sell")
@@ -141,6 +140,15 @@ class KoreanReportLanguageTestCase(unittest.TestCase):
     def test_korean_values_canonicalize_back_for_other_languages(self) -> None:
         self.assertEqual(localize_trend_prediction("상승", "en"), "Bullish")
         self.assertEqual(localize_operation_advice("적극 매도", "zh"), "强烈卖出")
+
+
+class ThaiReportLanguageTestCase(unittest.TestCase):
+    def test_thai_is_supported_and_localized(self) -> None:
+        self.assertIn("th", SUPPORTED_REPORT_LANGUAGES)
+        self.assertEqual(normalize_report_language("thai"), "th")
+        self.assertEqual(localize_operation_advice("买入", "th"), "ซื้อ")
+        self.assertEqual(localize_trend_prediction("bullish", "th"), "ขาขึ้น")
+        self.assertEqual(get_report_labels("th")["dashboard_title"], "แดชบอร์ดการตัดสินใจ")
 
 
 if __name__ == "__main__":

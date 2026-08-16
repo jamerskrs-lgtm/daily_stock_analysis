@@ -107,13 +107,15 @@ from src.market_structure_prompt import format_market_structure_prompt_section
 logger = logging.getLogger(__name__)
 
 
-def _localized_text(language: Any, *, en: str, zh: str, ko: str) -> str:
-    """Pick a deterministic fallback string for the report language (zh/en/ko)."""
+def _localized_text(language: Any, *, en: str, zh: str, ko: str, th: Optional[str] = None) -> str:
+    """Pick a deterministic fallback string for the report language."""
     normalized = normalize_report_language(language)
     if normalized == "en":
         return en
     if normalized == "ko":
         return ko
+    if normalized == "th":
+        return th if th is not None else en
     return zh
 
 
@@ -2391,6 +2393,17 @@ class GeminiAnalyzer:
 - Use the common Korean or original listed company name when confident; do not invent one.
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, nested dashboard text, checklist items, and all narrative summaries.
 """
+        if lang == "th":
+            return base_prompt + """
+
+## ภาษาผลลัพธ์ (สำคัญสูงสุด)
+
+- คงชื่อคีย์ JSON ทุกตัวไว้เหมือนเดิม
+- `decision_type` ต้องเป็น `buy|hold|sell` เท่านั้น
+- ข้อความที่ผู้ใช้เห็นทั้งหมดต้องเขียนเป็นภาษาไทย
+- รวมถึง `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, ข้อความใน dashboard, checklist และสรุปทั้งหมด
+- หากข้อมูลไม่พร้อม ให้ระบุข้อจำกัดเป็นภาษาไทย ห้ามเดาหรือสร้างตัวเลขขึ้นเอง
+"""
         return base_prompt + """
 
 ## 输出语言（最高优先级）
@@ -4168,6 +4181,15 @@ class GeminiAnalyzer:
 - This includes `stock_name`, `trend_prediction`, `operation_advice`, `confidence_level`, all nested dashboard text, checklist items, and every summary field.
 - Use the common Korean or original listed company name when you are confident. If not, keep the listed company name rather than inventing one.
 - When data is missing, explain it in Korean instead of Chinese.
+"""
+        elif report_language == "th":
+            prompt += f"""
+
+### ข้อกำหนดภาษาผลลัพธ์ (สำคัญสูงสุด)
+- คงชื่อคีย์ JSON ทุกตัวไว้เหมือนเดิม ห้ามแปลชื่อคีย์
+- `decision_type` ต้องเป็น `buy`, `hold` หรือ `sell`
+- ข้อความที่ผู้ใช้เห็นทั้งหมดต้องเป็นภาษาไทย
+- หากข้อมูลขาดหาย ให้ระบุว่า “{no_data_text}” และข้อจำกัดเป็นภาษาไทย ห้ามเดาข้อมูล
 """
         else:
             prompt += f"""

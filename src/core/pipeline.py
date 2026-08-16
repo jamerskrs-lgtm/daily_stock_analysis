@@ -1430,7 +1430,9 @@ class StockAnalysisPipeline:
                 initial_context["analysis_context_pack_summary"] = analysis_context_pack_summary
 
             # 运行 Agent
-            if report_language in ("en", "ko"):
+            if report_language == "th":
+                message = f"วิเคราะห์หุ้น {code} ({stock_name}) และสร้างรายงาน decision dashboard แบบ JSON ให้ครบถ้วน"
+            elif report_language in ("en", "ko"):
                 message = f"Analyze stock {code} ({stock_name}) and return the full decision dashboard JSON."
             else:
                 message = f"请分析股票 {code} ({stock_name})，并生成决策仪表盘报告。"
