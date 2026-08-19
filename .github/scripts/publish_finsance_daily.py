@@ -88,6 +88,65 @@ def _read_checked(path: Path) -> bytes:
     return data
 
 
+# --- Thai-site publication contract -------------------------------------------------
+# Mirrors quant_publish.compliance_check in the QuantTrade engine. Kept dependency-free
+# so it runs in CI. A public page may present a framework with sourced facts; it must not
+# advise, must disclose how fresh its data is, and must not ship copy in a script the
+# reader cannot read.
+ADVICE_PATTERNS = ("ควรซื้อ", "ควรขาย", "แนะนำให้", "เราแนะนำ", "you should",
+                   "we recommend", "our view is")
+TEXT_FIELDS = ("summary_th", "action_label", "decision_label", "risks", "catalysts",
+               "unknowns", "name", "trend", "data_sources")
+
+
+def _visible_text(item: dict) -> str:
+    parts = []
+    for key in TEXT_FIELDS:
+        value = item.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, list):
+            parts.extend(str(v) for v in value)
+    return " ".join(parts)
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff" for ch in text)
+
+
+def compliance_reasons(payload: dict, language: str = "th") -> list[str]:
+    reasons = []
+    pub = payload.get("publication") or {}
+    is_public = bool(pub.get("public") or pub.get("enabled"))
+    if is_public and (pub.get("blockers") or []):
+        reasons.append(f"publication.blockers still open: {pub['blockers']}")
+    if is_public and pub.get("status") not in ("live", "cleared"):
+        reasons.append(f"publication.status={pub.get('status')} is not publishable")
+    mode = payload.get("data_mode") or {}
+    declared = {str(x).lower() for x in (mode.get("free_sources") or [])}
+    if mode.get("provider"):
+        declared.add(str(mode["provider"]).lower())
+    if not mode.get("commercial") and not mode.get("provider"):
+        reasons.append("data_mode.provider is empty; the page would label it 'Yahoo/yfinance'")
+    for item in payload.get("stocks") or []:
+        tag = item.get("ticker") or "?"
+        cases = ((item.get("three_case") or {}).get("cases")) or {}
+        if (item.get("decision") or item.get("action_label")) and len(cases) < 3:
+            reasons.append(f"{tag}: single decision without the three cases")
+        if not (item.get("data_quality") or {}).get("bar_asof"):
+            reasons.append(f"{tag}: data_quality.bar_asof missing")
+        text = _visible_text(item)
+        if language == "th" and _has_cjk(text):
+            reasons.append(f"{tag}: CJK text on a Thai-language page")
+        hits = [w for w in ADVICE_PATTERNS if w.lower() in text.lower()]
+        if hits:
+            reasons.append(f"{tag}: advice wording {hits}")
+        src = str(item.get("data_sources") or "")
+        if declared and src and not any(name in src.lower() for name in declared):
+            reasons.append(f"{tag}: data_sources does not match declared data_mode {sorted(declared)}")
+    return reasons
+
+
 def publish(
     source_dir: Path,
     destination_dir: Path,
@@ -95,6 +154,10 @@ def publish(
     render_trigger: Path | None = None,
 ) -> list[Path]:
     payload, latest_data = _read_payload(source_dir)
+    reasons = compliance_reasons(payload)
+    if reasons:
+        raise ValueError('publication blocked by the Thai-site contract: '
+                         + '; '.join(reasons))
     date_name = f"daily_{payload['date']}.json"
     versioned_source = source_dir / date_name
     if not versioned_source.is_file():
