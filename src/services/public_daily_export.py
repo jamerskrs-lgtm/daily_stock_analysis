@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 from datetime import date, datetime, timezone
@@ -97,6 +98,119 @@ def _thai_items(value: Any, *, fallback: Optional[str] = None) -> list[str]:
     return translated or ([fallback] if fallback else [])
 
 
+def _public_text(value: Any, *, thai_output: bool, limit: int = 800) -> Optional[str]:
+    """Keep narrative fields public-safe without inventing translations."""
+    if thai_output:
+        return _thai_text(value)
+    return _safe_text(value, limit)
+
+
+def _overview_block(result: Any, key: str, *, thai_output: bool) -> dict[str, Any]:
+    overview = _value(result, "analysis_context_pack_overview")
+    blocks = overview.get("blocks") if isinstance(overview, Mapping) else None
+    if isinstance(blocks, list):
+        for block in blocks:
+            if isinstance(block, Mapping) and block.get("key") == key:
+                status = _safe_text(block.get("status"), 32)
+                if thai_output and status and _CJK_RE.search(status):
+                    status = "unavailable"
+                source = _safe_text(block.get("source"), 120)
+                if thai_output and source and _CJK_RE.search(source):
+                    source = None
+                return {
+                    "status": status,
+                    "source": source,
+                    "warnings": (_thai_items(block.get("warnings")) if thai_output else _items(block.get("warnings"), limit=3)),
+                    "missing_reasons": (_thai_items(block.get("missing_reasons")) if thai_output else _items(block.get("missing_reasons"), limit=3)),
+                }
+    return {"status": "unavailable", "source": None, "warnings": [], "missing_reasons": []}
+
+
+def _safe_metric(value: Any, *, limit: int = 80) -> Any:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return round(number, 6) if math.isfinite(number) else None
+    text = _safe_text(value, limit)
+    return text if text and not _CJK_RE.search(text) else None
+
+
+def _safe_metric_map(value: Any, keys: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: metric
+        for key in keys
+        if (metric := _safe_metric(value.get(key))) is not None
+    }
+
+
+def _technical_payload(result: Any, *, thai_output: bool) -> dict[str, Any]:
+    snapshot = _value(result, "market_snapshot")
+    snapshot = _safe_metric_map(
+        snapshot,
+        ("date", "volume", "volume_ratio", "turnover_rate"),
+    )
+    return {
+        **_overview_block(result, "technical", thai_output=thai_output),
+        "summary": _public_text(_value(result, "technical_analysis"), thai_output=thai_output),
+        "trend": _public_text(_value(result, "trend_analysis"), thai_output=thai_output),
+        "moving_average": _public_text(_value(result, "ma_analysis"), thai_output=thai_output),
+        "volume": _public_text(_value(result, "volume_analysis"), thai_output=thai_output),
+        "pattern": _public_text(_value(result, "pattern_analysis"), thai_output=thai_output),
+        "snapshot": snapshot,
+    }
+
+
+def _fundamentals_payload(result: Any, *, thai_output: bool) -> dict[str, Any]:
+    context = _value(result, "fundamental_context")
+    context = context if isinstance(context, Mapping) else {}
+    valuation = context.get("valuation") if isinstance(context.get("valuation"), Mapping) else {}
+    growth = context.get("growth") if isinstance(context.get("growth"), Mapping) else {}
+    earnings = context.get("earnings") if isinstance(context.get("earnings"), Mapping) else {}
+    valuation_data = valuation.get("data") if isinstance(valuation.get("data"), Mapping) else {}
+    growth_data = growth.get("data") if isinstance(growth.get("data"), Mapping) else {}
+    earnings_data = earnings.get("data") if isinstance(earnings.get("data"), Mapping) else {}
+    earnings_public: dict[str, Any] = {}
+    for section, keys in {
+        "financial_report": ("report_date", "revenue", "net_profit_parent", "operating_cash_flow", "roe", "currency"),
+        "dividend": ("ttm_event_count", "ttm_cash_dividend_per_share", "ttm_dividend_yield_pct", "currency", "as_of"),
+    }.items():
+        section_data = earnings_data.get(section)
+        metrics = _safe_metric_map(section_data, keys)
+        if metrics:
+            earnings_public[section] = metrics
+    return {
+        **_overview_block(result, "fundamentals", thai_output=thai_output),
+        "status": _safe_text(context.get("status"), 32) or _overview_block(result, "fundamentals", thai_output=thai_output).get("status"),
+        "as_of": _safe_text(context.get("as_of"), 64),
+        "summary": _public_text(_value(result, "fundamental_analysis"), thai_output=thai_output),
+        "sector": _public_text(_value(result, "sector_position"), thai_output=thai_output),
+        "company": _public_text(_value(result, "company_highlights"), thai_output=thai_output),
+        "valuation": _safe_metric_map(valuation_data, ("pe_ratio", "pb_ratio", "total_mv", "circ_mv")),
+        "growth": _safe_metric_map(growth_data, ("revenue_yoy", "net_profit_yoy", "roe", "gross_margin")),
+        "earnings": earnings_public,
+    }
+
+
+def _news_payload(result: Any, *, thai_output: bool) -> dict[str, Any]:
+    overview = _value(result, "analysis_context_pack_overview")
+    metadata = overview.get("metadata") if isinstance(overview, Mapping) else {}
+    count = metadata.get("news_result_count") if isinstance(metadata, Mapping) else None
+    return {
+        **_overview_block(result, "news", thai_output=thai_output),
+        "summary": _public_text(_value(result, "news_summary"), thai_output=thai_output),
+        "sentiment": _public_text(_value(result, "market_sentiment"), thai_output=thai_output),
+        "topics": _public_text(_value(result, "hot_topics"), thai_output=thai_output),
+        "search_performed": bool(_value(result, "search_performed", False)),
+        "result_count": int(count) if isinstance(count, int) and count >= 0 else None,
+    }
+
+
 def _dashboard(result: Any) -> dict[str, Any]:
     dashboard = _value(result, "dashboard", {})
     return dashboard if isinstance(dashboard, Mapping) else {}
@@ -153,6 +267,9 @@ def _stock_payload(result: Any) -> dict[str, Any]:
     ticker = _safe_text(_value(result, "code"), 64) or "unknown"
     success = bool(_value(result, "success", True))
     thai_output = str(_value(result, "report_language") or "").strip().lower() == "th"
+    technical = _technical_payload(result, thai_output=thai_output)
+    fundamentals = _fundamentals_payload(result, thai_output=thai_output)
+    news = _news_payload(result, thai_output=thai_output)
     risks = _thai_items(intelligence.get("risk_alerts")) if thai_output else _items(intelligence.get("risk_alerts"))
     warning_items = _thai_items(_value(result, "risk_warning")) if thai_output else _items(_value(result, "risk_warning"))
     for risk in warning_items:
@@ -209,6 +326,9 @@ def _stock_payload(result: Any) -> dict[str, Any]:
         ),
         "risks": risks[:5],
         "unknowns": unknowns[:5],
+        "technical": technical,
+        "fundamentals": fundamentals,
+        "news": news,
         "data_quality": _quality(result, dashboard),
         "data_sources": _safe_text(_value(result, "data_sources"), 600),
         "search_performed": bool(_value(result, "search_performed", False)),

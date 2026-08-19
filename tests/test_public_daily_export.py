@@ -24,12 +24,44 @@ class PublicDailyExportTestCase(unittest.TestCase):
             trend_prediction="震荡",
             confidence_level="中",
             analysis_summary="基于公开数据的观察摘要。",
-            risk_warning="数据仍需继续确认。",
+            report_language="th",
+            technical_analysis="均线仍在观察，等待更多确认。",
+            trend_analysis="短线趋势偏中性。",
+            ma_analysis="MA5 และ MA20 ยังไม่ตัดกันชัดเจน",
+            volume_analysis="ข้อมูลปริมาณการซื้อขายมีเพียงบางส่วน",
+            pattern_analysis="รูปแบบแท่งเทียนยังไม่ยืนยัน",
+            fundamental_analysis="รายได้และกำไรสุทธิต้องติดตาม",
+            sector_position="อุตสาหกรรมเซมิคอนดักเตอร์",
+            company_highlights="ธุรกิจหน่วยความจำยังมีความผันผวน。",
+            news_summary="ข่าวล่าสุดยังไม่มีสัญญาณที่ยืนยันได้。",
+            market_sentiment="อารมณ์ตลาดยังผันผวน。",
+            hot_topics="ผลประกอบการและวัฏจักรชิป。",
+            risk_warning="ข้อมูลยังต้องยืนยันเพิ่มเติม",
             search_performed=True,
             data_sources="yfinance, earnings",
             model_used="gemini/gemini-3-flash-preview",
             analysis_context_pack_overview={
-                "data_quality": {"stale": False, "bar_asof": "2026-08-14"}
+                "data_quality": {"stale": False, "bar_asof": "2026-08-14"},
+                "blocks": [
+                    {"key": "technical", "status": "available", "source": "technical_engine"},
+                    {"key": "fundamentals", "status": "partial", "source": "yfinance"},
+                    {"key": "news", "status": "available", "source": "search", "metadata": {"news_result_count": 2}},
+                ],
+                "metadata": {"news_result_count": 2},
+            },
+            market_snapshot={
+                "date": "2026-08-14",
+                "close": "123.45",
+                "volume": "1.2M",
+                "volume_ratio": "1.1",
+                "turnover_rate": "0.4%",
+            },
+            fundamental_context={
+                "status": "partial",
+                "as_of": "2026-08-14T00:00:00+00:00",
+                "valuation": {"status": "ok", "data": {"pe_ratio": 22.5, "pb_ratio": 1.8, "secret": "drop"}},
+                "growth": {"status": "partial", "data": {"revenue_yoy": 12.3, "roe": 8.4}},
+                "earnings": {"status": "ok", "data": {"financial_report": {"revenue": 100}}},
             },
             current_price=123.45,
             raw_response='{"secret":"do-not-publish"}',
@@ -76,6 +108,18 @@ class PublicDailyExportTestCase(unittest.TestCase):
             self.assertNotIn("battle_plan", dumped)
             self.assertNotIn("current_price", dumped)
             self.assertNotIn("123.45", dumped)
+            self.assertEqual(payload["stocks"][0]["technical"]["status"], "available")
+            self.assertEqual(payload["stocks"][0]["technical"]["moving_average"], "MA5 และ MA20 ยังไม่ตัดกันชัดเจน")
+            self.assertEqual(payload["stocks"][0]["fundamentals"]["valuation"], {"pe_ratio": 22.5, "pb_ratio": 1.8})
+            self.assertEqual(payload["stocks"][0]["fundamentals"]["earnings"]["financial_report"], {"revenue": 100.0})
+            self.assertEqual(payload["stocks"][0]["technical"]["snapshot"], {
+                "date": "2026-08-14",
+                "volume": "1.2M",
+                "volume_ratio": "1.1",
+                "turnover_rate": "0.4%",
+            })
+            self.assertNotIn("secret", dumped)
+            self.assertEqual(payload["stocks"][0]["news"]["result_count"], 2)
             self.assertTrue(path.with_name(f"{path.name}.sha256").exists())
             self.assertTrue(Path(temp_dir, "daily_2026-08-14.json").exists())
 
@@ -100,6 +144,18 @@ class PublicDailyExportTestCase(unittest.TestCase):
         self.assertNotRegex(stock["summary_th"], r"[\u3400-\u9fff]")
         self.assertTrue(all(not re.search(r"[\u3400-\u9fff]", item) for item in stock["risks"]))
         self.assertTrue(all(not re.search(r"[\u3400-\u9fff]", item) for item in stock["unknowns"]))
+
+    def test_thai_public_sections_drop_untranslated_cjk(self):
+        result = self._result()
+        result.technical_analysis = "技术面分析"
+        result.fundamental_analysis = "基本面分析"
+        result.news_summary = "新闻摘要"
+        payload = build_public_daily_payload([result])
+        stock = payload["stocks"][0]
+
+        self.assertIsNone(stock["technical"]["summary"])
+        self.assertIsNone(stock["fundamentals"]["summary"])
+        self.assertIsNone(stock["news"]["summary"])
 
 
 if __name__ == "__main__":

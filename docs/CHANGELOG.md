@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] Finsance public daily artifact เพิ่ม allow-list สำหรับ technical, fundamentals และ news พร้อมสถานะข้อมูล, snapshot, valuation/growth/earnings metrics และข่าวที่ค้นพบ โดยไม่เผยแพร่ raw payload หรือจุดซื้อขาย
 - [新功能] 新增 Finsance public daily export：以 allow-list 输出 Gemini/OpenAI AI 摘要与数据质量信息，排除交易点位、价格快照与 raw payload，并生成 SHA-256 sidecar。
 - [改进] GitHub Actions 增加 opt-in 的 Finsance 跨仓库校验、提交与 push 流程；默认关闭，且保留商业数据源开关。
 - [改进] GitHub Actions 每日分析工作流补齐 TickFlow 数据源环境变量映射，并收敛 README 数据源稳定性说明到完整指南。
